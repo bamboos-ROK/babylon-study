@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>1. Mesh 기초</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #111;
+        color: #eee;
+        font-family: sans-serif;
+        overflow: hidden;
+      }
+      #renderCanvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        touch-action: none;
+      }
+
+      #ui {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        background: rgba(0, 0, 0, 0.75);
+        padding: 16px;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 200px;
+      }
+      #ui h2 {
+        font-size: 14px;
+        margin-bottom: 4px;
+        color: #7ec8e3;
+      }
+      button {
+        padding: 8px 12px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background: #2a6496;
+        color: white;
+        font-size: 13px;
+        text-align: left;
+      }
+      button:hover {
+        background: #3a84c6;
+      }
+
+      .opt-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+      .opt-label {
+        font-size: 11px;
+        color: #7ec8e3;
+      }
+      .opt-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .chip {
+        padding: 4px 10px;
+        border-radius: 20px;
+        border: 1px solid #2a4a6a;
+        background: transparent;
+        color: #888;
+        font-size: 11px;
+        cursor: pointer;
+        transition:
+          background 0.12s,
+          color 0.12s,
+          border-color 0.12s;
+        white-space: nowrap;
+      }
+      .chip:hover {
+        background: #1a3a5a;
+        color: #ccc;
+        border-color: #3a6a9a;
+      }
+      .chip.active {
+        background: #2a6496;
+        border-color: #5aacee;
+        color: #fff;
+      }
+      .sep {
+        height: 1px;
+        background: #2a2a2a;
+      }
+
+      #info {
+        position: fixed;
+        bottom: 16px;
+        left: 16px;
+        background: rgba(0, 0, 0, 0.75);
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 12px;
+        line-height: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="ui">
+      <h2>1️⃣ Mesh 기초</h2>
+
+      <button onclick="toggleWireframe()">🔲 Wireframe</button>
+
+      <div class="sep"></div>
+
+      <div class="opt-group">
+        <div class="opt-label">📍 Position</div>
+        <div class="opt-chips" id="posChips">
+          <div class="chip active" onclick="selectPosition(0)">(0,0,0)</div>
+          <div class="chip" onclick="selectPosition(1)">(2, 1, 0)</div>
+          <div class="chip" onclick="selectPosition(2)">(-2, 0, 2)</div>
+          <div class="chip" onclick="selectPosition(3)">(0, -1, -2)</div>
+        </div>
+      </div>
+
+      <div class="opt-group">
+        <div class="opt-label">🔄 Rotation</div>
+        <div class="opt-chips" id="rotChips">
+          <div class="chip active" onclick="selectRotation(0)">0°</div>
+          <div class="chip" onclick="selectRotation(1)">Y 45°</div>
+          <div class="chip" onclick="selectRotation(2)">X30 Y60 Z30</div>
+        </div>
+      </div>
+
+      <div class="opt-group">
+        <div class="opt-label">🎯 Pivot</div>
+        <div class="opt-chips" id="pivotChips">
+          <div class="chip active" onclick="selectPivot(0)">중심</div>
+          <div class="chip" onclick="selectPivot(1)">오른쪽 면</div>
+          <div class="chip" onclick="selectPivot(2)">바닥 면</div>
+        </div>
+      </div>
+
+      <div class="opt-group">
+        <div class="opt-label">📐 Scale</div>
+        <div class="opt-chips" id="scaleChips">
+          <div class="chip active" onclick="selectScale(0)">기본 (1, 1, 1)</div>
+          <div class="chip" onclick="selectScale(1)">2배 (2, 2, 2)</div>
+          <div class="chip" onclick="selectScale(2)">절반 (0.5, 0.5, 0.5)</div>
+          <div class="chip" onclick="selectScale(3)">비균일 (2, 1, 0.5)</div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+      <button onclick="resetAll()">↩ 초기화</button>
+    </div>
+
+    <div id="info">
+      버텍스(Vertex): <strong id="vCount">-</strong> 개<br />
+      인덱스(Index): <strong id="iCount">-</strong> 개<br />
+      Position: <span id="posInfo">0, 0, 0</span><br />
+      Rotation: <span id="rotInfo">0°, 0°, 0°</span><br />
+      Scale: <span id="scaleInfo">1.0, 1.0, 1.0</span><br />
+      크기 (World): <span id="sizeInfo">2.0 × 2.0 × 2.0</span><br />
+      Pivot: <span id="pivotInfo">중심 (0, 0, 0)</span>
+    </div>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="./nav.js"></script>
+    <script>
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true);
+
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.08, 0.08, 0.12, 1);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "cam",
+        -Math.PI / 3,
+        Math.PI / 3,
+        16,
+        BABYLON.Vector3.Zero(),
+        scene,
+      );
+      camera.attachControl(canvas, true);
+      camera.lowerRadiusLimit = 3;
+      camera.upperRadiusLimit = 30;
+
+      const light = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0, 1, 0),
+        scene,
+      );
+      light.intensity = 0.9;
+
+      // Transform 계층 구조
+      // setPivotPoint(p)의 내부 동작: WorldMatrix = T(position) * R * S * T(-pivot)
+      // posNode (TransformNode) ← position만 담당
+      //  └ box (Mesh)        ← rotation / scale / pivot만 담당
+      const posNode = new BABYLON.TransformNode("posNode", scene);
+
+      const box = BABYLON.MeshBuilder.CreateBox("box", { size: 2 }, scene);
+      box.parent = posNode; // box는 posNode 기준 로컬 원점에 위치
+
+      const mat = new BABYLON.StandardMaterial("mat", scene);
+      mat.diffuseColor = new BABYLON.Color3(0.4, 0.7, 1.0);
+      box.material = mat;
+
+      // World Axis 시각화 (X=빨, Y=초, Z=파)
+      const axisLen = 4;
+      const mkAxis = (name, end, color) => {
+        const line = BABYLON.MeshBuilder.CreateLines(
+          name,
+          { points: [BABYLON.Vector3.Zero(), end] },
+          scene,
+        );
+        line.color = color;
+        line.isPickable = false;
+      };
+      mkAxis(
+        "axX",
+        new BABYLON.Vector3(axisLen, 0, 0),
+        new BABYLON.Color3(1, 0.2, 0.2),
+      );
+      mkAxis(
+        "axY",
+        new BABYLON.Vector3(0, axisLen, 0),
+        new BABYLON.Color3(0.2, 1, 0.2),
+      );
+      mkAxis(
+        "axZ",
+        new BABYLON.Vector3(0, 0, axisLen),
+        new BABYLON.Color3(0.2, 0.4, 1),
+      );
+
+      // Pivot 마커
+      const pivotMarker = BABYLON.MeshBuilder.CreateSphere(
+        "pivotMarker",
+        { diameter: 0.15 },
+        scene,
+      );
+      const pivotMat = new BABYLON.StandardMaterial("pmat", scene);
+      pivotMat.emissiveColor = new BABYLON.Color3(1, 1, 0);
+      pivotMarker.material = pivotMat;
+      pivotMarker.isPickable = false;
+
+      // 상수 & 헬퍼
+      const BASE_SIZE = 2;
+
+      const activateChip = (groupId, idx) => {
+        document
+          .querySelectorAll(`#${groupId} .chip`)
+          .forEach((c, i) => c.classList.toggle("active", i === idx));
+      };
+
+      const updatePivotMarker = () => {
+        // pivot의 World 위치 = posNode.position(시각적 중심) + pivot 로컬 오프셋
+        pivotMarker.position = posNode.position.add(box.getPivotPoint());
+      };
+
+      const updateInfo = () => {
+        const p = posNode.position; // position은 posNode에서 읽음
+        const r = box.rotation;
+        const s = box.scaling;
+        const toDeg = (rad) => Math.round((rad * 180) / Math.PI);
+        const fmt = (v) => v.toFixed(1);
+
+        document.getElementById("posInfo").textContent =
+          `${fmt(p.x)}, ${fmt(p.y)}, ${fmt(p.z)}`;
+        document.getElementById("rotInfo").textContent =
+          `${toDeg(r.x)}°, ${toDeg(r.y)}°, ${toDeg(r.z)}°`;
+        document.getElementById("scaleInfo").textContent =
+          `${fmt(s.x)}, ${fmt(s.y)}, ${fmt(s.z)}`;
+        document.getElementById("sizeInfo").textContent =
+          `${fmt(BASE_SIZE * s.x)} × ${fmt(BASE_SIZE * s.y)} × ${fmt(BASE_SIZE * s.z)}`;
+      };
+
+      document.getElementById("vCount").textContent = box.getTotalVertices();
+      document.getElementById("iCount").textContent = box.getTotalIndices();
+      updateInfo();
+
+      // Wireframe
+      let wireframe = false;
+      window.toggleWireframe = () => {
+        wireframe = !wireframe;
+        mat.wireframe = wireframe;
+      };
+
+      // Position 선택
+      // posNode.position만 변경 → box의 rotation / scale / pivot과 완전히 독립
+      const positions = [
+        new BABYLON.Vector3(0, 0, 0),
+        new BABYLON.Vector3(2, 1, 0),
+        new BABYLON.Vector3(-2, 0, 2),
+        new BABYLON.Vector3(0, -1, -2),
+      ];
+      window.selectPosition = (idx) => {
+        posNode.position = positions[idx].clone();
+        updatePivotMarker();
+        activateChip("posChips", idx);
+        updateInfo();
+      };
+
+      // Rotation 선택
+      // box.rotation만 변경 → posNode.position과 완전히 독립
+      const rotations = [
+        new BABYLON.Vector3(0, 0, 0),
+        new BABYLON.Vector3(0, Math.PI / 4, 0),
+        new BABYLON.Vector3(Math.PI / 6, Math.PI / 3, Math.PI / 6),
+      ];
+      window.selectRotation = (idx) => {
+        box.rotation = rotations[idx].clone();
+        activateChip("rotChips", idx);
+        updateInfo();
+      };
+
+      // Scale 선택
+      // 비균일 스케일(non-uniform): 축마다 배율이 달라 형태가 변형됨
+      const scales = [
+        new BABYLON.Vector3(1, 1, 1),
+        new BABYLON.Vector3(2, 2, 2),
+        new BABYLON.Vector3(0.5, 0.5, 0.5),
+        new BABYLON.Vector3(2, 1, 0.5),
+      ];
+      window.selectScale = (idx) => {
+        box.scaling = scales[idx].clone();
+        activateChip("scaleChips", idx);
+        updateInfo();
+      };
+
+      // Pivot 선택
+      // box 로컬 좌표계 기준 회전/스케일 기준점을 변경.
+      const pivotConfigs = [
+        { point: new BABYLON.Vector3(0, 0, 0), label: "중심 (0, 0, 0)" },
+        { point: new BABYLON.Vector3(1, 0, 0), label: "오른쪽 면 (1, 0, 0)" },
+        { point: new BABYLON.Vector3(0, -1, 0), label: "바닥 면 (0, -1, 0)" },
+      ];
+      window.selectPivot = (idx) => {
+        const cfg = pivotConfigs[idx];
+        box.setPivotPoint(cfg.point);
+        document.getElementById("pivotInfo").textContent = cfg.label;
+        updatePivotMarker();
+        activateChip("pivotChips", idx);
+        updateInfo();
+      };
+
+      // 초기화
+      window.resetAll = () => {
+        posNode.position = BABYLON.Vector3.Zero();
+        box.rotation = BABYLON.Vector3.Zero();
+        box.scaling = BABYLON.Vector3.One();
+        box.setPivotPoint(BABYLON.Vector3.Zero());
+        mat.wireframe = false;
+        wireframe = false;
+        activateChip("posChips", 0);
+        activateChip("rotChips", 0);
+        activateChip("scaleChips", 0);
+        activateChip("pivotChips", 0);
+        document.getElementById("pivotInfo").textContent = "중심 (0, 0, 0)";
+        updatePivotMarker();
+        updateInfo();
+      };
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    </script>
+  </body>
+</html>

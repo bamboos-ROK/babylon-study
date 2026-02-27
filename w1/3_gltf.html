@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>3. glTF / glb</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #111;
+        color: #eee;
+        font-family: sans-serif;
+        overflow: hidden;
+      }
+      #renderCanvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        touch-action: none;
+      }
+
+      #ui {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        background: rgba(0, 0, 0, 0.82);
+        padding: 16px;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 240px;
+        max-width: 280px;
+      }
+      #ui h2 {
+        font-size: 14px;
+        color: #a0f0a0;
+      }
+      #meshList {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .meshItem {
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        background: #1e3a1e;
+        border: 1px solid #2a5a2a;
+        user-select: none;
+      }
+      .meshItem:hover {
+        background: #2a5a2a;
+      }
+      .meshItem.selected {
+        background: #3a8a3a;
+        border-color: #5aaa5a;
+      }
+      .meshItem.root {
+        color: #888;
+        font-style: italic;
+        cursor: default;
+        background: transparent;
+        border: none;
+      }
+
+      button {
+        padding: 7px 10px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background: #2a6496;
+        color: white;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #3a84c6;
+      }
+      button:disabled {
+        background: #444;
+        cursor: default;
+      }
+      #wireframeBtn.active {
+        background: #c06020;
+      }
+
+      /* 파일 가져오기 버튼 */
+      #importBtn {
+        background: #1a5c2a;
+        border: 1px dashed #3aaa5a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+      #importBtn:hover {
+        background: #2a7a3a;
+      }
+
+      #colorPicker {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .colorBtn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: border-color 0.15s;
+      }
+      .colorBtn:hover {
+        border-color: white;
+      }
+
+      #status {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        background: rgba(0, 0, 0, 0.82);
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        color: #aaa;
+        max-width: 260px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <input
+      type="file"
+      id="fileInput"
+      accept=".glb,.gltf,.bin,image/*"
+      multiple
+      style="display: none"
+    />
+
+    <div id="ui">
+      <h2>3️⃣ glTF / glb</h2>
+
+      <button
+        id="importBtn"
+        onclick="document.getElementById('fileInput').click()"
+        style="display: flex; flex-direction: column"
+      >
+        <span>📂 파일 가져오기</span>
+        <span style="font-size: 10px; opacity: 0.7"
+          >(glb: 단일 파일 | gltf: bin+텍스처)</span
+        >
+      </button>
+
+      <button id="wireframeBtn" onclick="toggleWireframe()">🔲 Wireframe</button>
+
+      <div style="font-size: 12px; color: #888">Scene Graph (Mesh 목록)</div>
+      <div id="meshList">
+        <div style="font-size: 12px; color: #666">로딩 중...</div>
+      </div>
+
+      <div style="font-size: 12px; color: #aaa; margin-top: 4px">
+        선택한 Mesh 색 변경
+      </div>
+      <div id="colorPicker">
+        <div
+          class="colorBtn"
+          style="background: #e74c3c"
+          onclick="applyColor('#e74c3c')"
+          title="Red"
+        ></div>
+        <div
+          class="colorBtn"
+          style="background: #2ecc71"
+          onclick="applyColor('#2ecc71')"
+          title="Green"
+        ></div>
+        <div
+          class="colorBtn"
+          style="background: #3498db"
+          onclick="applyColor('#3498db')"
+          title="Blue"
+        ></div>
+        <div
+          class="colorBtn"
+          style="background: #f39c12"
+          onclick="applyColor('#f39c12')"
+          title="Orange"
+        ></div>
+        <div
+          class="colorBtn"
+          style="background: #9b59b6"
+          onclick="applyColor('#9b59b6')"
+          title="Purple"
+        ></div>
+        <div
+          class="colorBtn"
+          style="background: #ecf0f1"
+          onclick="applyColor('#ecf0f1')"
+          title="White"
+        ></div>
+      </div>
+      <button id="resetMat" onclick="resetMaterial()" disabled>
+        원본 머티리얼 복원
+      </button>
+    </div>
+
+    <div id="status">glb 파일을 로드하는 중...</div>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="./nav.js"></script>
+    <script>
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true);
+
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.08, 0.1, 0.08, 1);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "cam",
+        -Math.PI / 3,
+        Math.PI / 3,
+        16,
+        BABYLON.Vector3.Zero(),
+        scene,
+      );
+      camera.attachControl(canvas, true);
+
+      const light = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0, 1, 0),
+        scene,
+      );
+      light.intensity = 0.8;
+
+      let selectedMesh = null;
+      let originalMaterial = null;
+      // 현재 로드된 컨테이너 (dispose로 씬 초기화에 사용)
+      let currentContainer = null;
+
+      // 하이라이트 레이어
+      const hl = new BABYLON.HighlightLayer("hl", scene);
+
+      // 와이어프레임
+      let wireframeOn = false;
+      window.toggleWireframe = () => {
+        wireframeOn = !wireframeOn;
+        scene.meshes.forEach((m) => {
+          if (m.material) m.material.wireframe = wireframeOn;
+        });
+        document
+          .getElementById("wireframeBtn")
+          .classList.toggle("active", wireframeOn);
+      };
+
+      // 파일 로드 공통 함수
+      // files: FileList (glb → 1개, gltf → .bin·텍스처 포함 여러 개)
+      function loadFromFiles(files) {
+        const fileArray = [...files];
+
+        // 선택 파일 중 .gltf 우선, 없으면 .glb
+        const mainFile =
+          fileArray.find((f) => f.name.toLowerCase().endsWith(".gltf")) ||
+          fileArray.find((f) => f.name.toLowerCase().endsWith(".glb"));
+
+        if (!mainFile) {
+          setStatus("❌ .glb 또는 .gltf 파일을 포함해야 합니다.");
+          return;
+        }
+
+        setStatus(`⏳ "${mainFile.name}" 로딩 중...`);
+        selectedMesh = null;
+        originalMaterial = null;
+        hl.removeAllMeshes();
+        document.getElementById("resetMat").disabled = true;
+        document.getElementById("meshList").innerHTML =
+          '<div style="font-size:12px;color:#666;">로딩 중...</div>';
+
+        // 이전 씬 정리
+        if (currentContainer) {
+          currentContainer.removeAllFromScene();
+          currentContainer.dispose();
+          currentContainer = null;
+        }
+
+        const onLoaded = (container, name) => {
+          currentContainer = container;
+          container.addAllToScene();
+          const { meshes, lights } = container;
+          setStatus(
+            `✅ "${name}" — Mesh ${meshes.length}개, Light ${lights.length}개`,
+          );
+          buildMeshList(meshes);
+        };
+
+        const onError = (err) => {
+          setStatus("❌ 로드 실패: " + (err.message || err));
+          console.error(err);
+        };
+
+        const ext = mainFile.name.split(".").pop().toLowerCase();
+        if (ext === "glb") {
+          // glb: 단일 바이너리 파일 → Blob URL로 로드
+          const blobUrl = URL.createObjectURL(mainFile);
+          BABYLON.SceneLoader.LoadAssetContainerAsync(
+            blobUrl,
+            "",
+            scene,
+            null,
+            ".glb",
+          )
+            .then((c) => {
+              URL.revokeObjectURL(blobUrl);
+              onLoaded(c, mainFile.name);
+            })
+            .catch((err) => {
+              URL.revokeObjectURL(blobUrl);
+              onError(err);
+            });
+        } else {
+          // gltf: 외부 .bin, 텍스처를 FilesToLoad 레지스트리에 등록
+          // 로더가 외부 URI fetch 시 이 레지스트리를 먼저 확인함
+          BABYLON.FilesInput.FilesToLoad = {}; // 이전 등록 초기화
+          fileArray.forEach((f) => {
+            BABYLON.FilesInput.FilesToLoad[f.name.toLowerCase()] = f;
+          });
+
+          // rootUrl = "file:" → 로더가 FilesToLoad에서 파일을 찾도록 지시
+          BABYLON.SceneLoader.LoadAssetContainerAsync(
+            "file:",
+            mainFile.name,
+            scene,
+          )
+            .then((c) => onLoaded(c, mainFile.name))
+            .catch(onError);
+        }
+      }
+
+      // 샘플 glb 로드
+      BABYLON.SceneLoader.LoadAssetContainerAsync(
+        "./",
+        "scene_lights+camera.glb",
+        scene,
+      )
+        .then((container) => {
+          currentContainer = container;
+          container.addAllToScene();
+          hl.removeAllMeshes();
+          selectedMesh = null;
+          setStatus(
+            `✅ scene_lights+camera.glb — Mesh ${container.meshes.length}개, Light ${container.lights.length}개`,
+          );
+          buildMeshList(container.meshes);
+          camera.setTarget(BABYLON.Vector3.Zero());
+        })
+        .catch((err) => {
+          setStatus("⚠️ 기본 파일 로드 실패. 파일을 직접 가져오세요.");
+          document.getElementById("meshList").innerHTML =
+            '<div style="font-size:12px;color:#666;">파일을 가져오세요</div>';
+        });
+
+      // Scene Graph 목록 렌더링
+      function buildMeshList(meshes) {
+        const list = document.getElementById("meshList");
+        list.innerHTML = "";
+
+        if (meshes.length === 0) {
+          list.innerHTML =
+            '<div style="font-size:12px;color:#666;">Mesh 없음</div>';
+          return;
+        }
+
+        meshes.forEach((mesh) => {
+          if (!mesh.name) return;
+
+          const item = document.createElement("div");
+          if (mesh.name === "__root__") {
+            item.className = "meshItem root";
+            item.textContent = `📁 ${mesh.name} (root)`;
+          } else {
+            item.className = "meshItem";
+            const depth = getDepth(mesh);
+            item.textContent = "\u00a0\u00a0".repeat(depth) + `📦 ${mesh.name}`;
+            item.onclick = () => selectMesh(mesh, item);
+          }
+          list.appendChild(item);
+        });
+      }
+
+      function getDepth(mesh) {
+        let d = 0,
+          cur = mesh.parent;
+        while (cur) {
+          d++;
+          cur = cur.parent;
+        }
+        return Math.max(0, d - 1);
+      }
+
+      // Mesh 선택
+      function selectMesh(mesh, item) {
+        if (selectedMesh) hl.removeMesh(selectedMesh);
+
+        document
+          .querySelectorAll(".meshItem.selected")
+          .forEach((el) => el.classList.remove("selected"));
+
+        if (selectedMesh === mesh) {
+          selectedMesh = null;
+          originalMaterial = null;
+          document.getElementById("resetMat").disabled = true;
+          return;
+        }
+
+        selectedMesh = mesh;
+        originalMaterial = mesh.material;
+        item.classList.add("selected");
+        document.getElementById("resetMat").disabled = false;
+
+        // 하이라이트 (geometry가 있는 mesh만)
+        if (mesh.getTotalVertices() > 0) {
+          hl.addMesh(mesh, BABYLON.Color3.Yellow());
+        }
+      }
+
+      // 색 변경
+      window.applyColor = (hex) => {
+        if (!selectedMesh) {
+          alert("Mesh를 선택하세요.");
+          return;
+        }
+
+        const mat = selectedMesh.material;
+        if (!mat) return;
+
+        if (!(mat instanceof BABYLON.PBRMaterial)) return;
+
+        // albedoColor 값(Color3)을 clone해서 저장.
+        if (!selectedMesh.metadata) selectedMesh.metadata = {};
+        if (!selectedMesh.metadata.originalColor) {
+          selectedMesh.metadata.originalColor = mat.albedoColor.clone();
+        }
+
+        mat.albedoColor = BABYLON.Color3.FromHexString(hex);
+      };
+
+      window.resetMaterial = () => {
+        if (!selectedMesh) return;
+        const mat = selectedMesh.material;
+        if (!(mat instanceof BABYLON.PBRMaterial)) return;
+
+        const originalColor = selectedMesh.metadata?.originalColor;
+        if (!originalColor) return;
+
+        mat.albedoColor = originalColor;
+        delete selectedMesh.metadata.originalColor;
+      };
+
+      // 씬 클릭으로 mesh 선택
+      scene.onPointerDown = (evt, pickResult) => {
+        if (!pickResult.hit || !pickResult.pickedMesh) return;
+        const mesh = pickResult.pickedMesh;
+        const item = [...document.querySelectorAll(".meshItem")].find((el) =>
+          el.textContent.includes(mesh.name),
+        );
+        if (item) selectMesh(mesh, item);
+      };
+
+      // 파일 입력 이벤트
+      document.getElementById("fileInput").addEventListener("change", (e) => {
+        if (e.target.files.length > 0) loadFromFiles(e.target.files);
+        e.target.value = ""; // 같은 파일 재선택 허용
+      });
+
+      // 헬퍼
+      function setStatus(msg) {
+        document.getElementById("status").textContent = msg;
+      }
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    </script>
+  </body>
+</html>

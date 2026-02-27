@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>2. Texture & UV Map</title>
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #111;
+        color: #eee;
+        font-family: sans-serif;
+        overflow: hidden;
+      }
+      #renderCanvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        touch-action: none;
+      }
+
+      #ui {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 16px;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-width: 240px;
+      }
+      #ui h2 {
+        font-size: 14px;
+        color: #f0c060;
+      }
+      .ctrl {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+      }
+      label {
+        color: #aaa;
+      }
+      input[type="range"] {
+        width: 100%;
+      }
+      .val {
+        color: #7ec8e3;
+        font-weight: bold;
+      }
+      button {
+        padding: 7px 10px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background: #2a6496;
+        color: white;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #3a84c6;
+      }
+      .wrap-btns {
+        display: flex;
+        gap: 4px;
+      }
+      .wrap-btn {
+        flex: 1;
+        padding: 5px 4px;
+        font-size: 11px;
+        background: #333;
+      }
+      .wrap-btn.active {
+        background: #c06020;
+      }
+      .wrap-btn:hover:not(.active) {
+        background: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="ui">
+      <h2>2️⃣ Texture & UV Map</h2>
+      <button onclick="toggleWireframe()">🔲 Wireframe</button>
+      <div class="ctrl">
+        <label
+          >U Scale (가로 반복): <span class="val" id="uScaleVal">1</span></label
+        >
+        <input
+          type="range"
+          id="uScale"
+          min="0.25"
+          max="4"
+          step="0.25"
+          value="1"
+        />
+      </div>
+      <div class="ctrl">
+        <label
+          >V Scale (세로 반복): <span class="val" id="vScaleVal">1</span></label
+        >
+        <input
+          type="range"
+          id="vScale"
+          min="0.25"
+          max="4"
+          step="0.25"
+          value="1"
+        />
+      </div>
+      <div class="ctrl">
+        <label
+          >U Offset (가로 이동): <span class="val" id="uOffVal">0</span></label
+        >
+        <input type="range" id="uOff" min="-1" max="1" step="0.05" value="0" />
+      </div>
+      <div class="ctrl">
+        <label
+          >V Offset (세로 이동): <span class="val" id="vOffVal">0</span></label
+        >
+        <input type="range" id="vOff" min="-1" max="1" step="0.05" value="0" />
+      </div>
+
+      <button onclick="switchShape()">Box ↔ Sphere</button>
+      <button onclick="switchTexture()">텍스처 교체</button>
+      <button onclick="resetUV()">UV 초기화</button>
+
+      <div class="ctrl">
+        <label>U Wrap 모드:</label>
+        <div class="wrap-btns" id="uWrapBtns">
+          <button class="wrap-btn active" onclick="setWrap('U', 'WRAP')">
+            Repeat
+          </button>
+          <button class="wrap-btn" onclick="setWrap('U', 'CLAMP')">
+            Clamp
+          </button>
+          <button class="wrap-btn" onclick="setWrap('U', 'MIRROR')">
+            Mirror
+          </button>
+        </div>
+      </div>
+      <div class="ctrl">
+        <label>V Wrap 모드:</label>
+        <div class="wrap-btns" id="vWrapBtns">
+          <button class="wrap-btn active" onclick="setWrap('V', 'WRAP')">
+            Repeat
+          </button>
+          <button class="wrap-btn" onclick="setWrap('V', 'CLAMP')">
+            Clamp
+          </button>
+          <button class="wrap-btn" onclick="setWrap('V', 'MIRROR')">
+            Mirror
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="./nav.js"></script>
+    <script>
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true);
+
+      // 씬 구성
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.08, 0.08, 0.12, 1);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "cam",
+        -Math.PI / 3,
+        Math.PI / 3,
+        16,
+        BABYLON.Vector3.Zero(),
+        scene,
+      );
+      camera.attachControl(canvas, true);
+
+      const light = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0, 1, 0),
+        scene,
+      );
+      light.intensity = 1.0;
+
+      // 텍스처 목록
+      const textureUrls = [
+        "https://playground.babylonjs.com/textures/crate.png",
+        "https://playground.babylonjs.com/textures/Logo.png",
+      ];
+      let texIdx = 0;
+
+      // 머티리얼 & 텍스처 설정
+      const mat = new BABYLON.StandardMaterial("mat", scene);
+
+      // Texture 객체: 이미지를 GPU에 올리는 역할
+      let tex = new BABYLON.Texture(textureUrls[texIdx], scene);
+      mat.diffuseTexture = tex;
+
+      // 도형 생성
+      let currentShape = "box";
+      let mesh = BABYLON.MeshBuilder.CreateBox("box", { size: 2 }, scene);
+      mesh.material = mat;
+
+      // Wrap 모드 상수
+      const WRAP_MODES = {
+        WRAP: BABYLON.Texture.WRAP_ADDRESSMODE,
+        CLAMP: BABYLON.Texture.CLAMP_ADDRESSMODE,
+        MIRROR: BABYLON.Texture.MIRROR_ADDRESSMODE,
+      };
+
+      const setWrapBtnActive = (groupId, mode) => {
+        const modes = ["WRAP", "CLAMP", "MIRROR"];
+        document.querySelectorAll(`#${groupId} .wrap-btn`).forEach((btn, i) => {
+          btn.classList.toggle("active", modes[i] === mode);
+        });
+      };
+
+      window.setWrap = (axis, mode) => {
+        if (axis === "U") {
+          tex.wrapU = WRAP_MODES[mode];
+          setWrapBtnActive("uWrapBtns", mode);
+        } else {
+          tex.wrapV = WRAP_MODES[mode];
+          setWrapBtnActive("vWrapBtns", mode);
+        }
+      };
+
+      // UV 슬라이더 연결
+      const bindSlider = (id, valId, prop) => {
+        const slider = document.getElementById(id);
+        const label = document.getElementById(valId);
+        slider.addEventListener("input", () => {
+          const v = parseFloat(slider.value);
+          label.textContent = v.toFixed(2);
+          tex[prop] = v;
+        });
+      };
+
+      bindSlider("uScale", "uScaleVal", "uScale");
+      bindSlider("vScale", "vScaleVal", "vScale");
+      bindSlider("uOff", "uOffVal", "uOffset");
+      bindSlider("vOff", "vOffVal", "vOffset");
+
+      // Wireframe
+      let wireframe = false;
+      window.toggleWireframe = () => {
+        wireframe = !wireframe;
+        mat.wireframe = wireframe;
+      };
+
+      // 버튼 동작
+      window.switchShape = () => {
+        mesh.dispose();
+        if (currentShape === "box") {
+          // Sphere: 극점(pole)에서 UV가 찌그러지는 이유를 시각적으로 확인
+          mesh = BABYLON.MeshBuilder.CreateSphere(
+            "sphere",
+            { diameter: 3, segments: 16 },
+            scene,
+          );
+          currentShape = "sphere";
+        } else {
+          mesh = BABYLON.MeshBuilder.CreateBox("box", { size: 3 }, scene);
+          currentShape = "box";
+        }
+        mesh.material = mat;
+      };
+
+      window.switchTexture = () => {
+        texIdx = (texIdx + 1) % textureUrls.length;
+        const prevUScale = tex.uScale;
+        const prevVScale = tex.vScale;
+        const prevUOffset = tex.uOffset;
+        const prevVOffset = tex.vOffset;
+        const prevWrapU = tex.wrapU;
+        const prevWrapV = tex.wrapV;
+
+        tex.dispose();
+        tex = new BABYLON.Texture(textureUrls[texIdx], scene);
+        // UV 설정 유지
+        tex.uScale = prevUScale;
+        tex.vScale = prevVScale;
+        tex.uOffset = prevUOffset;
+        tex.vOffset = prevVOffset;
+        tex.wrapU = prevWrapU;
+        tex.wrapV = prevWrapV;
+        mat.diffuseTexture = tex;
+      };
+
+      window.resetUV = () => {
+        tex.uScale = tex.vScale = 1;
+        tex.uOffset = tex.vOffset = 0;
+        tex.wrapU = tex.wrapV = WRAP_MODES.WRAP;
+        ["uScale", "vScale", "uOff", "vOff"].forEach((id) => {
+          document.getElementById(id).value = id.includes("Off") ? 0 : 1;
+        });
+        ["uScaleVal", "vScaleVal", "uOffVal", "vOffVal"].forEach((id, i) => {
+          document.getElementById(id).textContent = i < 2 ? "1" : "0";
+        });
+        setWrapBtnActive("uWrapBtns", "WRAP");
+        setWrapBtnActive("vWrapBtns", "WRAP");
+      };
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    </script>
+  </body>
+</html>

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>4. Shader 입문</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        background: #0a0a0f;
+        color: #eee;
+        font-family: monospace;
+        overflow: hidden;
+      }
+      #renderCanvas {
+        width: 100vw;
+        height: 100vh;
+        display: block;
+        touch-action: none;
+      }
+
+      #ui {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        background: rgba(0, 0, 0, 0.85);
+        padding: 16px;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 240px;
+      }
+      #ui h2 {
+        font-size: 14px;
+        color: #ff8c69;
+      }
+      button {
+        padding: 8px 10px;
+        cursor: pointer;
+        border: none;
+        border-radius: 4px;
+        background: #4a2060;
+        color: white;
+        font-size: 12px;
+        text-align: left;
+      }
+      button:hover {
+        background: #6a3090;
+      }
+      button.active {
+        background: #8a40c0;
+        border-left: 3px solid #ff8c69;
+      }
+      .sep {
+        height: 1px;
+        background: #333;
+        margin: 2px 0;
+      }
+      .ctrl {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 12px;
+      }
+      label {
+        color: #aaa;
+      }
+      input[type="range"] {
+        width: 100%;
+      }
+      .val {
+        color: #ff8c69;
+      }
+
+      #codePanel {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        background: rgba(0, 0, 0, 0.9);
+        padding: 14px;
+        border-radius: 8px;
+        font-size: 11px;
+        line-height: 1.6;
+        max-width: 320px;
+        border: 1px solid #333;
+        color: #ccc;
+      }
+      #codePanel .keyword {
+        color: #c792ea;
+      }
+      #codePanel .type {
+        color: #82aaff;
+      }
+      #codePanel .comment {
+        color: #546e7a;
+      }
+      #codePanel h3 {
+        color: #ff8c69;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+
+      #hint {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        background: rgba(0, 0, 0, 0.85);
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="ui">
+      <h2>4️⃣ Shader 입문</h2>
+
+      <button id="btn0" class="active" onclick="setMode(0)">
+        ① StandardMaterial (기본)
+      </button>
+      <button id="btn1" onclick="setMode(1)">② Emissive Color 조절</button>
+      <button id="btn2" onclick="setMode(2)">③ PBR Material (금속/거침)</button>
+      <button id="btn3" onclick="setMode(3)">④ 커스텀 Shader (GLSL)</button>
+
+      <div class="sep"></div>
+
+      <div class="ctrl" id="emissiveCtrl" style="display: none">
+        <label>Emissive R: <span class="val" id="erVal">0.0</span></label>
+        <input type="range" id="er" min="0" max="1" step="0.05" value="0" />
+        <label>Emissive G: <span class="val" id="egVal">0.0</span></label>
+        <input type="range" id="eg" min="0" max="1" step="0.05" value="0" />
+        <label>Emissive B: <span class="val" id="ebVal">0.0</span></label>
+        <input type="range" id="eb" min="0" max="1" step="0.05" value="0" />
+      </div>
+      <div class="ctrl" id="pbrCtrl" style="display: none">
+        <label>Metallic: <span class="val" id="metalVal">0.0</span></label>
+        <input type="range" id="metal" min="0" max="1" step="0.05" value="0" />
+        <label>Roughness: <span class="val" id="roughVal">0.5</span></label>
+        <input
+          type="range"
+          id="rough"
+          min="0"
+          max="1"
+          step="0.05"
+          value="0.5"
+        />
+      </div>
+    </div>
+
+    <div id="codePanel">
+      <h3>▶ 현재 실행 중인 Shader 개념</h3>
+      <div id="codeContent"></div>
+    </div>
+
+    <div id="hint">클릭: Highlight</div>
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="./nav.js"></script>
+    <script>
+      const canvas = document.getElementById("renderCanvas");
+      const engine = new BABYLON.Engine(canvas, true);
+
+      const scene = new BABYLON.Scene(engine);
+      scene.clearColor = new BABYLON.Color4(0.04, 0.04, 0.08, 1);
+
+      const camera = new BABYLON.ArcRotateCamera(
+        "cam",
+        -Math.PI / 3,
+        Math.PI / 3,
+        16,
+        BABYLON.Vector3.Zero(),
+        scene,
+      );
+      camera.attachControl(canvas, true);
+
+      // 환경 조명 (PBR에 필요)
+      const light = new BABYLON.HemisphericLight(
+        "hemi",
+        new BABYLON.Vector3(0, 1, 0),
+        scene,
+      );
+      light.intensity = 0.6;
+      const dirLight = new BABYLON.DirectionalLight(
+        "dir",
+        new BABYLON.Vector3(-1, -2, -1),
+        scene,
+      );
+      dirLight.intensity = 1.0;
+
+      // 메시 생성
+      const sphere = BABYLON.MeshBuilder.CreateSphere(
+        "sphere",
+        { diameter: 2, segments: 32 },
+        scene,
+      );
+      sphere.position.x = -1;
+
+      const box = BABYLON.MeshBuilder.CreateBox("box", { size: 2 }, scene);
+      box.position.x = 1.5;
+      box.position.y = 0.1;
+
+      // HighlightLayer: 내부적으로 Glow Shader를 사용
+      const hl = new BABYLON.HighlightLayer("hl", scene);
+      hl.outerGlow = true;
+      const highlighted = new Set();
+
+      scene.onPointerDown = (evt, pick) => {
+        if (!pick.hit || !pick.pickedMesh) return;
+        const mesh = pick.pickedMesh;
+        if (highlighted.has(mesh)) {
+          hl.removeMesh(mesh);
+          highlighted.delete(mesh);
+        } else {
+          hl.addMesh(mesh, BABYLON.Color3.Yellow());
+          highlighted.add(mesh);
+        }
+      };
+
+      // 머티리얼 정의
+      // ① Standard
+      const stdMat = new BABYLON.StandardMaterial("std", scene);
+      stdMat.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.8);
+
+      // ② Emissive
+      const emMat = new BABYLON.StandardMaterial("em", scene);
+      emMat.diffuseColor = new BABYLON.Color3(0.3, 0.3, 0.5);
+      emMat.emissiveColor = new BABYLON.Color3(0, 0, 0);
+
+      // ③ PBR
+      const pbrMat = new BABYLON.PBRMaterial("pbr", scene);
+      pbrMat.albedoColor = new BABYLON.Color3(0.9, 0.7, 0.3);
+      pbrMat.metallic = 0;
+      pbrMat.roughness = 0.5;
+
+      // ④ 커스텀 GLSL Shader
+      // Vertex Shader: 각 정점을 clip space로 변환
+      // Fragment Shader: 시간에 따라 rainbow 색상 출력
+      BABYLON.Effect.ShadersStore["rainbowVertexShader"] = `
+            precision highp float;
+            // attribute: 각 정점마다 다른 값 (Vertex Buffer에서 읽어옴)
+            attribute vec3 position;
+            attribute vec3 normal;
+            // uniform: 모든 정점/픽셀에서 동일한 값
+            uniform mat4 worldViewProjection;
+            uniform mat4 world;
+            // varying: Vertex → Fragment로 보간되어 전달
+            varying vec3 vNormal;
+            void main() {
+              gl_Position = worldViewProjection * vec4(position, 1.0);
+              vNormal = normalize((world * vec4(normal, 0.0)).xyz);
+            }
+          `;
+      BABYLON.Effect.ShadersStore["rainbowFragmentShader"] = `
+            precision highp float;
+            uniform float time;
+            varying vec3 vNormal;
+            void main() {
+              // cos 함수로 시간에 따라 R/G/B 위상 다르게 순환 → rainbow 효과
+              vec3 col = 0.5 + 0.5 * cos(time * 1.5 + vNormal.xyx + vec3(0.0, 2.1, 4.2));
+              // Normal을 활용해 방향에 따라 밝기 차이를 주어 3D감 표현
+              float diffuse = max(dot(vNormal, normalize(vec3(1.0, 2.0, 1.0))), 0.15);
+              gl_FragColor = vec4(col * diffuse, 1.0);
+            }
+          `;
+      const shaderMat = new BABYLON.ShaderMaterial(
+        "rainbow",
+        scene,
+        "rainbow",
+        {
+          attributes: ["position", "normal"],
+          uniforms: ["worldViewProjection", "world", "time"],
+        },
+      );
+
+      // time uniform을 매 프레임 업데이트
+      let elapsed = 0;
+      scene.registerBeforeRender(() => {
+        elapsed += engine.getDeltaTime() * 0.001;
+        shaderMat.setFloat("time", elapsed);
+      });
+
+      // 슬라이더 연결
+      const bindR = (id, valId, onChange) => {
+        document.getElementById(id).addEventListener("input", (e) => {
+          const v = parseFloat(e.target.value);
+          document.getElementById(valId).textContent = v.toFixed(2);
+          onChange(v);
+        });
+      };
+      bindR("er", "erVal", (v) => (emMat.emissiveColor.r = v));
+      bindR("eg", "egVal", (v) => (emMat.emissiveColor.g = v));
+      bindR("eb", "ebVal", (v) => (emMat.emissiveColor.b = v));
+      bindR("metal", "metalVal", (v) => (pbrMat.metallic = v));
+      bindR("rough", "roughVal", (v) => (pbrMat.roughness = v));
+
+      // 모드 전환
+      const codeSnippets = [
+        // ① Standard
+        `<span class="comment">// Material이 내부적으로 Phong Shader를 감싼다</span>
+      <span class="keyword">const</span> mat = <span class="keyword">new</span> BABYLON.<span class="type">StandardMaterial</span>(...);
+      mat.diffuseColor = <span class="keyword">new</span> BABYLON.<span class="type">Color3</span>(0.5, 0.5, 0.8);
+      <span class="comment"><br />// → Fragment Shader가 빛 계산 후 diffuseColor 곱함</span>`,
+
+        // ② Emissive
+        `<span class="comment">// emissive = 자체 발광 (조명 무관)</span><br />
+      <span class="comment">// Fragment Shader 내부: finalColor = diffuse + emissive</span><br />
+      mat.emissiveColor = <span class="keyword">new</span> BABYLON.<span class="type">Color3</span>(r, g, b);
+      <span class="comment"><br />// emissive가 크면 조명 없어도 밝게 보임</span>`,
+
+        // ③ PBR
+        `<span class="comment">// PBR = 물리 기반 렌더링 Shader</span><br />
+      <span class="comment">// Metallic: 1 → 금속 반사 / 0 → 비금속 확산</span><br />
+      <span class="comment">// Roughness: 0 → 거울 / 1 → 완전 확산</span><br />
+      <span class="keyword">const</span> mat = <span class="keyword">new</span> BABYLON.<span class="type">PBRMaterial</span>(...);
+      mat.metallic = 0.9;  mat.roughness = 0.1;`,
+
+        // ④ Custom GLSL
+        `<span class="comment">// Vertex Shader: 위치 변환 (MVP 행렬)</span><br />
+      <span class="keyword">void</span> <span class="type">main</span>() {
+        gl_Position = worldViewProjection * <span class="keyword">vec4</span>(position, 1.0);
+      }<br />
+      <span class="comment">// Fragment Shader: cos로 rainbow 색상 계산</span><br />
+      <span class="keyword">void</span> <span class="type">main</span>() {<br />
+        <span class="keyword">vec3</span> col = 0.5 + 0.5 * cos(time + vNormal.xyx);<br />
+        gl_FragColor = <span class="keyword">vec4</span>(col, 1.0);<br />
+      }`,
+      ];
+
+      let currentMode = 0;
+      window.setMode = (mode) => {
+        currentMode = mode;
+        [0, 1, 2, 3].forEach((i) =>
+          document
+            .getElementById("btn" + i)
+            .classList.toggle("active", i === mode),
+        );
+
+        document.getElementById("emissiveCtrl").style.display =
+          mode === 1 ? "flex" : "none";
+        document.getElementById("pbrCtrl").style.display =
+          mode === 2 ? "flex" : "none";
+        document.getElementById("codeContent").innerHTML = codeSnippets[mode];
+
+        const mats = [stdMat, emMat, pbrMat, shaderMat];
+        sphere.material = mats[mode];
+        box.material = mats[mode];
+      };
+
+      // 초기화
+      setMode(0);
+
+      engine.runRenderLoop(() => scene.render());
+      window.addEventListener("resize", () => engine.resize());
+    </script>
+  </body>
+</html>
